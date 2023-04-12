@@ -3,8 +3,6 @@ import plotext as plt
 import sys
 from typing import Tuple, Sequence
 
-plt.theme("pro")
-
 # n'' left =
 #    (2n[0] - 5n[1] + 4n[2] - n[3]) / dx^3
 #
@@ -156,6 +154,13 @@ def GoodTicks(xmin: float, xmax: float) -> Tuple[Sequence[float], Sequence[float
     return ticks, ticklabels
 
 
+def progressbar(ax, value, minimum=0, maximum=100, label=None, color="white"):
+    ax.bar([value], minimum=minimum, marker="sd", orientation="h", color=color)
+    ax.xlim(minimum, maximum)
+    ax.yticks([])
+    ax.xlabel(label)
+
+
 if __name__ == "__main__":
     T0 = 0.1
     emin = 1e-3
@@ -195,23 +200,33 @@ if __name__ == "__main__":
             raise ValueError("Negative value encountered", np.min(n_arr))
 
         if i % 100 == 0:
+            plt.clf()
             plt.cld()
             plt.clt()
-            plt.plotsize(100, 20)
+            plt.plotsize(100, 30)
+            plt.subplots(2, 1)
+            ax1 = plt.subplot(1, 1)
+            ax1.theme("pro")
+            ax1.plotsize(100, 20)
+
+            ax2 = plt.subplot(2, 1)
+            ax2.theme("pro")
+            ax2.plotsize(100, 5)
+            progressbar(ax2, i, 0, nsteps, "timestep", "white")
 
             n_target = 1 / (np.exp(e_arr / T))
             n_target /= np.trapz(n_target * e_arr**2, e_arr)
-            plt.plot(e_arr, e_arr**3 * n_target + 1e-8, color="blue")
+            ax1.plot(e_arr, e_arr**3 * n_target + 1e-8, color="blue")
 
-            plt.plot(
+            ax1.plot(
                 e_arr, e_arr**3 * n_arr / norm + 1e-8, color=hex_to_rgb("#d62728")
             )
-            plt.xticks(*GoodTicks(emin, emax))
-            plt.yticks(*GoodTicks(10**ymin, 10**ymax))
-            plt.xlabel("e [me c^2]")
-            plt.ylabel("e^2 dn/de")
-            plt.xscale("log")
-            plt.yscale("log")
-            plt.ylim(ymin, ymax)
-            plt.xlim(xmin, xmax)
+            ax1.xticks(*GoodTicks(emin, emax))
+            ax1.yticks(*GoodTicks(10**ymin, 10**ymax))
+            ax1.xlabel("e [me c^2]")
+            ax1.ylabel("e^2 dn/de")
+            ax1.xscale("log")
+            ax1.yscale("log")
+            ax1.ylim(ymin, ymax)
+            ax1.xlim(xmin, xmax)
             plt.show()
