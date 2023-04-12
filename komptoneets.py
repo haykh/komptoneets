@@ -59,23 +59,34 @@ def Derivatives(ni: np.ndarray, dx: float) -> Tuple[np.ndarray, np.ndarray]:
 
 
 # right hand side
-def RHS(n: float, dn_dx: float, d2n_dx2: float, x: float, T: float) -> float:
+def RHS(
+    n0: np.ndarray,
+    n: np.ndarray,
+    dn_dx: np.ndarray,
+    d2n_dx2: np.ndarray,
+    x: np.ndarray,
+    T: float,
+) -> np.ndarray:
     return (
         T * d2n_dx2
         + (np.exp(x) + 3 * T) * dn_dx
         + 2 * np.exp(x) * n * (2 + dn_dx)
         + 4 * np.exp(x) * n**2
+        - n / 10
+        + n0
     )
 
 
 def CN_predictor(
-    n: np.ndarray, n1: np.ndarray, x: np.ndarray, T: float, dt: float
+    n0: np.ndarray, n: np.ndarray, n1: np.ndarray, x: np.ndarray, T: float, dt: float
 ) -> np.ndarray:
     """
     Use Crank-Nicolson method to predict the next value of a given array of values.
 
     Parameters
     ----------
+    n0 : 1D numpy.ndarray
+        Function n at time 0
     n : 1D numpy.ndarray
         Function n at time t
     n1 : 1D numpy.ndarray
@@ -102,18 +113,20 @@ def CN_predictor(
     """
     dx: float = x[1] - x[0]
     dn1_dx, d2n1_dx2 = Derivatives(n1, dx)
-    ntilde: np.ndarray = n + dt * RHS(n1, dn1_dx, d2n1_dx2, x, T)
+    ntilde: np.ndarray = n + dt * RHS(n0, n1, dn1_dx, d2n1_dx2, x, T)
     return 0.5 * (ntilde + n)
 
 
 def CN_corrector(
-    n: np.ndarray, ndash: np.ndarray, e: np.ndarray, T: float, dt: float
+    n0: np.ndarray, n: np.ndarray, ndash: np.ndarray, e: np.ndarray, T: float, dt: float
 ) -> np.ndarray:
     """
     Use Crank-Nicolson method to correct the predicted value of a given array of values.
 
     Parameters
     ----------
+    n0 : 1D numpy.ndarray
+        Function n at time 0
     n : 1D numpy.ndarray
         Function n at time t.
     ndash : 1D numpy.ndarray
@@ -137,7 +150,7 @@ def CN_corrector(
     """
     dx = e[1] - e[0]
     dndash_dx, d2ndash_dx2 = Derivatives(ndash, dx)
-    return n + dt * RHS(ndash, dndash_dx, d2ndash_dx2, e, T)
+    return n + dt * RHS(n0, ndash, dndash_dx, d2ndash_dx2, e, T)
 
 
 def GoodTicks(xmin: float, xmax: float) -> Tuple[Sequence[float], Sequence[float]]:
@@ -162,25 +175,26 @@ def progressbar(ax, value, minimum=0, maximum=100, label=None, color="white"):
 
 
 if __name__ == "__main__":
-    T0 = 0.1
-    emin = 1e-3
-    emax = 50
-    x_arr = np.linspace(np.log(emin), np.log(emax), 500)
+    T0 = 1e-3
+    emin = 1e-4
+    emax = 10
+    x_arr = np.linspace(np.log(emin), np.log(emax), 1000)
     e_arr = np.exp(x_arr)
     n_arr = np.zeros_like(e_arr)
     # Delta function:
-    n_arr[np.argmin(np.abs(e_arr - 1e-2))] = 1
+    n_arr[np.argmin(np.abs(e_arr - T0))] = 1
     # Planck distribution:
     # n_arr = 1 / (np.exp(e_arr / T0) - 1)
-    T = 0.5
-    dt = 0.0001
+    T = 0.2
+    dt = 0.00002
 
     n0_arr = n_arr.copy()
+    n_arr *= 0
 
     norm = np.trapz(n0_arr * e_arr**2, e_arr)
 
-    xmin, xmax = -3, 1.7
-    ymin, ymax = -4, 0
+    xmin, xmax = np.log10(emin), np.log10(emax)
+    ymin, ymax = -4, 1
 
     # if number of steps is passed:
     if len(sys.argv) > 1:
@@ -189,10 +203,10 @@ if __name__ == "__main__":
         nsteps = 1000000
 
     for i in range(nsteps):
-        ndash_arr = CN_predictor(n_arr, n_arr, x_arr, T, dt)
-        ndash_arr = CN_predictor(n_arr, ndash_arr, x_arr, T, dt)
-        ndash_arr = CN_predictor(n_arr, ndash_arr, x_arr, T, dt)
-        n_arr = CN_corrector(n_arr, ndash_arr, x_arr, T, dt)
+        ndash_arr = CN_predictor(n0_arr, n_arr, n_arr, x_arr, T, dt)
+        ndash_arr = CN_predictor(n0_arr, n_arr, ndash_arr, x_arr, T, dt)
+        ndash_arr = CN_predictor(n0_arr, n_arr, ndash_arr, x_arr, T, dt)
+        n_arr = CN_corrector(n0_arr, n_arr, ndash_arr, x_arr, T, dt)
         n_arr = np.abs(n_arr)
         if np.any(np.isnan(n_arr)):
             raise ValueError("NaN encountered")
