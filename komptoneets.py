@@ -1,6 +1,7 @@
 import numpy as np
 import plotext as plt
-import matplotlib as mpl
+import sys
+from typing import Tuple, Sequence
 
 plt.theme("pro")
 
@@ -17,7 +18,31 @@ plt.theme("pro")
 #     (3n[-1] - 4n[-2] + n[-3]) / (2 * dx)
 
 
-def Derivatives(ni, dx):
+def hex_to_rgb(hex: str) -> Tuple[int, int, int]:
+    hex = hex.lstrip("#")
+    hlen = len(hex)
+    return tuple(int(hex[i : i + hlen // 3], 16) for i in range(0, hlen, hlen // 3))
+
+
+def Derivatives(ni: np.ndarray, dx: float) -> Tuple[np.ndarray, np.ndarray]:
+    """Calculate the first and second derivatives of a 1D array
+
+    For the second derivative, enforce n'' = 0 at the boundaries
+
+    Parameters
+    ----------
+    ni : np.ndarray
+        1D array of values to take the derivatives of
+    dx : float
+        grid spacing
+
+    Returns
+    -------
+    dni_dx : np.ndarray
+        1D array of first derivatives
+    d2ni_dx2 : np.ndarray
+        1D array of second derivatives
+    """
     # find the second derivative of ni
     d2ni_dx2 = (ni[2:] - 2 * ni[1:-1] + ni[:-2]) / dx**2
     # enforce n'' = 0 at the boundaries
@@ -36,7 +61,7 @@ def Derivatives(ni, dx):
 
 
 # right hand side
-def RHS(n, dn_dx, d2n_dx2, x, T):
+def RHS(n: float, dn_dx: float, d2n_dx2: float, x: float, T: float) -> float:
     return (
         T * d2n_dx2
         + (np.exp(x) + 3 * T) * dn_dx
@@ -45,7 +70,9 @@ def RHS(n, dn_dx, d2n_dx2, x, T):
     )
 
 
-def CN_predictor(n, n1, x, T, dt):
+def CN_predictor(
+    n: np.ndarray, n1: np.ndarray, x: np.ndarray, T: float, dt: float
+) -> np.ndarray:
     """
     Use Crank-Nicolson method to predict the next value of a given array of values.
 
@@ -75,13 +102,15 @@ def CN_predictor(n, n1, x, T, dt):
     1. ntilde(t+1) = n(t) + dt * RHS(n1, dn1/dx, d2n1/dx2, x, T, dx)
     2. ndash(t+1/2) = 0.5 * (ntilde(t+1) + n(t))
     """
-    dx = x[1] - x[0]
+    dx: float = x[1] - x[0]
     dn1_dx, d2n1_dx2 = Derivatives(n1, dx)
-    ntilde = n + dt * RHS(n1, dn1_dx, d2n1_dx2, x, T)
+    ntilde: np.ndarray = n + dt * RHS(n1, dn1_dx, d2n1_dx2, x, T)
     return 0.5 * (ntilde + n)
 
 
-def CN_corrector(n, ndash, e, T, dt):
+def CN_corrector(
+    n: np.ndarray, ndash: np.ndarray, e: np.ndarray, T: float, dt: float
+) -> np.ndarray:
     """
     Use Crank-Nicolson method to correct the predicted value of a given array of values.
 
@@ -113,9 +142,18 @@ def CN_corrector(n, ndash, e, T, dt):
     return n + dt * RHS(ndash, dndash_dx, d2ndash_dx2, e, T)
 
 
-def Diagnostics(n, e):
-    print("n_max, n_min:", np.nanmax(n), np.nanmin(n))
-    print("n_int:", np.trapz(n, e))
+def GoodTicks(xmin: float, xmax: float) -> Tuple[Sequence[float], Sequence[float]]:
+    ticks = [
+        10**i
+        for i in range(int(np.ceil(np.log10(xmin))), int(np.floor(np.log10(xmax))) + 1)
+    ]
+    ticklabels = [
+        f"1e{int(np.log10(t))}"
+        if (t < 0.01 or t > 1000)
+        else (int(t) if t >= 1 else float(t))
+        for t in ticks
+    ]
+    return ticks, ticklabels
 
 
 if __name__ == "__main__":
@@ -124,9 +162,11 @@ if __name__ == "__main__":
     emax = 50
     x_arr = np.linspace(np.log(emin), np.log(emax), 500)
     e_arr = np.exp(x_arr)
-    n_arr = np.where(np.abs(e_arr - 1e-2) < 1e-4, 1.0, 0.0)
+    n_arr = np.zeros_like(e_arr)
+    # Delta function:
+    n_arr[np.argmin(np.abs(e_arr - 1e-2))] = 1
+    # Planck distribution:
     # n_arr = 1 / (np.exp(e_arr / T0) - 1)
-    # n_arr /= np.trapz(n_arr * e_arr**2, e_arr)
     T = 0.5
     dt = 0.0001
 
@@ -137,7 +177,13 @@ if __name__ == "__main__":
     xmin, xmax = -3, 1.7
     ymin, ymax = -4, 0
 
-    for i in range(100000):
+    # if number of steps is passed:
+    if len(sys.argv) > 1:
+        nsteps = int(sys.argv[1])
+    else:
+        nsteps = 1000000
+
+    for i in range(nsteps):
         ndash_arr = CN_predictor(n_arr, n_arr, x_arr, T, dt)
         ndash_arr = CN_predictor(n_arr, ndash_arr, x_arr, T, dt)
         ndash_arr = CN_predictor(n_arr, ndash_arr, x_arr, T, dt)
@@ -157,7 +203,13 @@ if __name__ == "__main__":
             n_target /= np.trapz(n_target * e_arr**2, e_arr)
             plt.plot(e_arr, e_arr**3 * n_target + 1e-8, color="blue")
 
-            plt.plot(e_arr, e_arr**3 * n_arr / norm + 1e-8, color="green")
+            plt.plot(
+                e_arr, e_arr**3 * n_arr / norm + 1e-8, color=hex_to_rgb("#d62728")
+            )
+            plt.xticks(*GoodTicks(emin, emax))
+            plt.yticks(*GoodTicks(10**ymin, 10**ymax))
+            plt.xlabel("e [me c^2]")
+            plt.ylabel("e^2 dn/de")
             plt.xscale("log")
             plt.yscale("log")
             plt.ylim(ymin, ymax)
