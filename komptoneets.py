@@ -212,7 +212,7 @@ if __name__ == "__main__":
             ax2 = plt.subplot(2, 1)
             ax2.theme("pro")
             ax2.plotsize(100, 5)
-            progressbar(ax2, i, 0, nsteps, "timestep", "white")
+            progressbar(ax2, i * dt, 0, nsteps * dt, "time", "white")
 
             n_target = 1 / (np.exp(e_arr / T))
             n_target /= np.trapz(n_target * e_arr**2, e_arr)
