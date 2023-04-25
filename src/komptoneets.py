@@ -72,8 +72,9 @@ def RHS(
         + (np.exp(x) + 3 * T) * dn_dx
         + 2 * np.exp(x) * n * (2 + dn_dx)
         + 4 * np.exp(x) * n**2
-        - n / 10
-        + n0
+        # + 4 * np.exp(x) * n
+        # - n / 10
+        # + n0 / 100
     )
 
 
@@ -175,7 +176,7 @@ def progressbar(ax, value, minimum=0, maximum=100, label=None, color="white"):
 
 
 if __name__ == "__main__":
-    T0 = 1e-3
+    T0 = 1e-2
     emin = 1e-4
     emax = 10
     x_arr = np.linspace(np.log(emin), np.log(emax), 1000)
@@ -186,10 +187,10 @@ if __name__ == "__main__":
     # Planck distribution:
     # n_arr = 1 / (np.exp(e_arr / T0) - 1)
     T = 0.2
-    dt = 0.00002
+    dt = 0.0002
 
     n0_arr = n_arr.copy()
-    n_arr *= 0
+    # n_arr *= 0
 
     norm = np.trapz(n0_arr * e_arr**2, e_arr)
 
@@ -222,13 +223,16 @@ if __name__ == "__main__":
             ax1 = plt.subplot(1, 1)
             ax1.theme("pro")
             ax1.plotsize(100, 20)
+            # xs = np.logspace(-3, -1)
+            # ys = 1e-3 * (xs / xs[0]) ** 3
+            # ax1.plot(xs, ys)
 
             ax2 = plt.subplot(2, 1)
             ax2.theme("pro")
             ax2.plotsize(100, 5)
             progressbar(ax2, i * dt, 0, nsteps * dt, "time", "white")
 
-            n_target = 1 / (np.exp(e_arr / T))
+            n_target = 1 / (np.exp(e_arr / T) - 1)
             n_target /= np.trapz(n_target * e_arr**2, e_arr)
             ax1.plot(e_arr, e_arr**3 * n_target + 1e-8, color="blue")
 
