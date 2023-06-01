@@ -1,4 +1,5 @@
 import numpy as np
+import torch
 import plotext as plt
 import sys
 from typing import Tuple, Sequence
@@ -22,29 +23,15 @@ def hex_to_rgb(hex: str) -> Tuple[int, int, int]:
     return tuple(int(hex[i : i + hlen // 3], 16) for i in range(0, hlen, hlen // 3))
 
 
-def Derivatives(ni: np.ndarray, dx: float) -> Tuple[np.ndarray, np.ndarray]:
+def Derivatives(ni, dx: float):
     """Calculate the first and second derivatives of a 1D array
 
     For the second derivative, enforce n'' = 0 at the boundaries
-
-    Parameters
-    ----------
-    ni : np.ndarray
-        1D array of values to take the derivatives of
-    dx : float
-        grid spacing
-
-    Returns
-    -------
-    dni_dx : np.ndarray
-        1D array of first derivatives
-    d2ni_dx2 : np.ndarray
-        1D array of second derivatives
     """
     # find the second derivative of ni
-    d2ni_dx2 = (ni[2:] - 2 * ni[1:-1] + ni[:-2]) / dx**2
-    # enforce n'' = 0 at the boundaries
-    d2ni_dx2 = np.concatenate(([0], d2ni_dx2, [0]))
+    d2ni_dx2 = torch.zeros_like(ni)
+    d2ni_dx2[1:-1] = (ni[2:] - 2 * ni[1:-1] + ni[:-2]) / dx**2
+    # # enforce n'' = 0 at the boundaries
 
     # find ni[0] and ni[-1] from n'' = 0 condition
     ni_left = (5 / 2) * ni[1] - 2 * ni[2] + (1 / 2) * ni[3]
@@ -53,34 +40,29 @@ def Derivatives(ni: np.ndarray, dx: float) -> Tuple[np.ndarray, np.ndarray]:
     # find the first derivative of ni
     dni_dx_left = (-3 * ni_left + 4 * ni[1] - ni[2]) / (2 * dx)
     dni_dx_right = (3 * ni_right - 4 * ni[-2] + ni[-3]) / (2 * dx)
-    dni_dx = (ni[2:] - ni[:-2]) / (2 * dx)
-    dni_dx = np.concatenate(([dni_dx_left], dni_dx, [dni_dx_right]))
+
+    dni_dx = torch.zeros_like(ni)
+    dni_dx[1:-1] = (ni[2:] - ni[:-2]) / (2 * dx)
+    dni_dx[0] = dni_dx_left
+    dni_dx[-1] = dni_dx_right
+    # dni_dx = np.concatenate(([dni_dx_left], dni_dx, [dni_dx_right]))
     return dni_dx, d2ni_dx2
 
 
 # right hand side
-def RHS(
-    n0: np.ndarray,
-    n: np.ndarray,
-    dn_dx: np.ndarray,
-    d2n_dx2: np.ndarray,
-    x: np.ndarray,
-    T: float,
-) -> np.ndarray:
+def RHS(n0, n, dn_dx, d2n_dx2, x, T):
     return (
         T * d2n_dx2
-        + (np.exp(x) + 3 * T) * dn_dx
-        + 2 * np.exp(x) * n * (2 + dn_dx)
-        + 4 * np.exp(x) * n**2
+        + (torch.exp(x) + 3 * T) * dn_dx
+        + 2 * torch.exp(x) * n * (2 + dn_dx)
+        + 4 * torch.exp(x) * n**2
         # + 4 * np.exp(x) * n
-        - n / 100
-        + n0 / 100
+        # - n / 10
+        # + n0 / 100
     )
 
 
-def Iteration(
-    n0: np.ndarray, n: np.ndarray, n1: np.ndarray, x: np.ndarray, T: float, dt: float
-) -> np.ndarray:
+def Iteration(n0, n, n1, x, T, dt):
     """
     1. ntilde(t+1) = n(t) + dt * RHS(n1, dn1/dx, d2n1/dx2, x, T, dx)
     2. ndash(t+1/2) = 0.5 * (ntilde(t+1) + n(t))
@@ -91,9 +73,7 @@ def Iteration(
     return 0.5 * (ntilde + n)
 
 
-def Final(
-    n0: np.ndarray, n: np.ndarray, ndash: np.ndarray, e: np.ndarray, T: float, dt: float
-) -> np.ndarray:
+def Final(n0, n, ndash, e, T, dt):
     """
     n(t+1) = n(t) + dt * RHS(ndash(t+1/2), e, T, dx)
     """
@@ -124,23 +104,30 @@ def progressbar(ax, value, minimum=0, maximum=100, label=None, color="white"):
 
 
 if __name__ == "__main__":
+    import time
+
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+    else:
+        raise Exception("No GPU found")
+
     T0 = 1e-2
     emin = 1e-4
     emax = 10
-    x_arr = np.linspace(np.log(emin), np.log(emax), 1000)
-    e_arr = np.exp(x_arr)
-    n_arr = np.zeros_like(e_arr)
+    x_arr = torch.linspace(np.log(emin), np.log(emax), 100000, device=device)
+    e_arr = torch.exp(x_arr)
+    n_arr = torch.zeros_like(e_arr, device=device)
     # Delta function:
-    # n_arr[np.argmin(np.abs(e_arr - T0))] = 1
+    n_arr[torch.argmin(torch.abs(e_arr - T0))] = 1
     # Planck distribution:
-    n_arr = 1 / (np.exp(e_arr / T0) - 1)
+    # n_arr = 1 / (np.exp(e_arr / T0) - 1)
     T = 0.2
-    dt = 0.0002
+    dt = 0.0000002
 
-    n0_arr = n_arr.copy()
+    n0_arr = n_arr.clone()
     # n_arr *= 0
 
-    norm = np.trapz(n0_arr * e_arr**2, e_arr)
+    norm = np.trapz((n0_arr * e_arr**2).cpu(), e_arr.cpu())
 
     xmin, xmax = np.log10(emin), np.log10(emax)
     ymin, ymax = -4, 1
@@ -152,20 +139,18 @@ if __name__ == "__main__":
         nsteps = 1000000
 
     for i in range(nsteps):
+        now = time.time()
         ndash_arr = Iteration(n0_arr, n_arr, n_arr, x_arr, T, dt)
         ndash_arr = Iteration(n0_arr, n_arr, ndash_arr, x_arr, T, dt)
-        ndash_arr = Iteration(n0_arr, n_arr, ndash_arr, x_arr, T, dt)
         n_arr = Final(n0_arr, n_arr, ndash_arr, x_arr, T, dt)
-        n_arr = np.abs(n_arr)
-        if np.any(np.isnan(n_arr)):
-            raise ValueError("NaN encountered")
-        elif np.any(n_arr < 0):
-            raise ValueError("Negative value encountered", np.min(n_arr))
+        n_arr = torch.abs(n_arr)
+        duration = time.time() - now
 
         if i % 100 == 0:
             plt.clf()
             plt.cld()
             plt.clt()
+            print(f"{duration:.2e}")
             plt.plotsize(100, 30)
             plt.subplots(2, 1)
             ax1 = plt.subplot(1, 1)
@@ -180,12 +165,16 @@ if __name__ == "__main__":
             ax2.plotsize(100, 5)
             progressbar(ax2, i * dt, 0, nsteps * dt, "time", "white")
 
-            n_target = 1 / (np.exp(e_arr / T) - 1)
-            n_target /= np.trapz(n_target * e_arr**2, e_arr)
-            ax1.plot(e_arr, e_arr**3 * n_target + 1e-8, color="blue")
+            xs = e_arr[::100].cpu()
+            ys = n_arr[::100].cpu()
+            n_target = 1 / (np.exp(xs / T) - 1)
+            n_target /= np.trapz(n_target * xs**2, xs)
+            ax1.plot(xs, xs**3 * n_target + 1e-8, color="blue")
 
             ax1.plot(
-                e_arr, e_arr**3 * n_arr / norm + 1e-8, color=hex_to_rgb("#d62728")
+                xs,
+                xs**3 * ys / norm + 1e-8,
+                color=hex_to_rgb("#d62728"),
             )
             ax1.xticks(*GoodTicks(emin, emax))
             ax1.yticks(*GoodTicks(10**ymin, 10**ymax))
